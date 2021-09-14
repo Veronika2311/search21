@@ -69,15 +69,17 @@ def get_answers(X, vectorizer):
             print(vocabulary[i])
     
       
-    names = ['моника', 'мон', 'рэйчел', 'рэйч', 'чендлер','чэндлер', 'чен', 
-             'фиби', 'фибс', 'росс', 'джоуи', 'джои', 'джо']
+    persons = [['моника', 'мон'], ['рэйчел', 'рэйч'], ['чендлер','чэндлер', 'чен'], 
+             ['фиби', 'фибс'], ['росс'], ['джоуи', 'джои', 'джо']]
 
     names_freq = []
-    for name in names:
-        names_freq.append(sum(X.toarray().transpose()[vectorizer.vocabulary_.get(name)]))
-    
+    for person in persons:
+        person_freq = 0
+        for name in person:
+            person_freq += sum(X.toarray().transpose()[vectorizer.vocabulary_.get(name)])
+        names_freq.append(person_freq)
     #print(names_freq)
-    print('Самое частое имя: ' + names[names_freq.index(max(names_freq))])
+    print('Самое частое имя: ' + persons[names_freq.index(max(names_freq))][0])
 
 
 def main():
