@@ -115,6 +115,9 @@ def search_docs(X, Y):
 
 def range_of_results(corpus, scores):
     sorted_scores_indx = np.argsort(scores, axis=0)[::-1]
+        user_string = input('Введите поисковый запрос: ')
+        if user_string == '':
+            break
     return np.array(corpus)[sorted_scores_indx.ravel()][:5]
 
 
@@ -122,12 +125,12 @@ def main():
     text_analyzer = Russian()
     corpus_preproc, corpus_origin_answers = get_corpus(text_analyzer)
     corpus_matrix, count_vectorizer = index_corpus(corpus_preproc)
-    user_string = 'test'
-    while user_string != '':
-        user_string = input('Введите поисковый запрос: ')
+    while True:
         query = preprocess(user_string, text_analyzer)
         Y = index_search(count_vectorizer, query)
-        print(range_of_results(corpus_preproc, search_docs(corpus_matrix, Y)))
+        result = range_of_results(corpus_origin_answers, search_docs(corpus_matrix, Y))
+        for el in result:
+            print(el)
 
 if __name__ == "__main__":
     main()
