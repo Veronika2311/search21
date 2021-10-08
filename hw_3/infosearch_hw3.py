@@ -7,6 +7,9 @@ from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from spacy.lang.ru import Russian
 
 def get_text():
+    '''
+    Читаем файл, в этом дз определённый
+    '''
     with open('questions_about_love.jsonl', 'r', encoding='utf8') as f:
         corpus = list(f)[:50000]
     
@@ -27,6 +30,9 @@ def preprocess(text, nlp):
 
 
 def sort_answers(answers):
+    '''
+    Сортируем ответы по рейтингу автора
+    '''
     raits = []
     for answer in answers:
         if answer['author_rating']['value']:
@@ -44,6 +50,7 @@ def sort_answers(answers):
 
 def get_corpus(text_analyzer):
     '''
+    Обрабатываем корпус, полчучаем корпус сырых ответов и корпус препроцесшенных
     '''
     print('Пожалуйста, подождите, корпус обрабатывается...')
     corpus_preproc = [] 
@@ -114,18 +121,24 @@ def search_docs(X, Y):
 
 
 def range_of_results(corpus, scores):
+    '''
+    Ранжируем выдачу, выдаём пять самых близких документов
+    '''
     sorted_scores_indx = np.argsort(scores, axis=0)[::-1]
-        user_string = input('Введите поисковый запрос: ')
-        if user_string == '':
-            break
     return np.array(corpus)[sorted_scores_indx.ravel()][:5]
 
 
 def main():
+    '''
+    Главная функция: собирем всё воедино
+    '''
     text_analyzer = Russian()
     corpus_preproc, corpus_origin_answers = get_corpus(text_analyzer)
     corpus_matrix, count_vectorizer = index_corpus(corpus_preproc)
     while True:
+        user_string = input('Введите поисковый запрос: ')
+        if user_string == '':
+            break
         query = preprocess(user_string, text_analyzer)
         Y = index_search(count_vectorizer, query)
         result = range_of_results(corpus_origin_answers, search_docs(corpus_matrix, Y))
