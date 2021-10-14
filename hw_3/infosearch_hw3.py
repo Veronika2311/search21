@@ -3,20 +3,30 @@ import json
 import numpy as np
 from scipy import sparse
 from tqdm import tqdm
-from sklearn.preprocessing import normalize
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from spacy.lang.ru import Russian
-from gensim.models import KeyedVectors
-import torch
-from transformers import AutoTokenizer, AutoModel
 
-def get_file(filepath):
+def get_text():
     '''
     Читаем файл, в этом дз определённый
     '''
-    with open(filepath, 'r', encoding='utf8') as f:
-        corpus = list(f)[:50]
+    with open('questions_about_love.jsonl', 'r', encoding='utf8') as f:
+        corpus = list(f)[:50000]
     
     return corpus
+
+def preprocess(text, nlp):
+    '''
+    Здесь фильтруются предлоги, союзы и прочие служебные части речи.
+    Также происходит фильтрация пунктуации.
+    '''
+    doc = nlp(text)
+    postags_stop = ['ADP', 'AUX', 'CCONJ', 'DET', 'INTJ', 'PART', 'PRON', 'PUNCT', 'SCONJ']
+    lemms = []
+    for word in doc:
+        if word.pos_ not in postags_stop and str(word) not in '.,?!\'\"()[]{}<>1234567890':
+            lemms.append(word.lemma_.lower())
+    return ' '.join(lemms)
 
 
 def sort_answers(answers):
@@ -38,68 +48,76 @@ def sort_answers(answers):
     return best_answer
 
 
-def get_corpus(corpus_json):
+def get_corpus(text_analyzer):
     '''
     Обрабатываем корпус, полчучаем корпус сырых ответов и корпус препроцесшенных
     '''
     print('Пожалуйста, подождите, корпус обрабатывается...')
+    corpus_preproc = [] 
     corpus_origin_answers = []
-    for question_answers in tqdm(corpus_json):
+    for question_answers in tqdm(get_text()):
         answers = json.loads(question_answers)['answers']
         text = sort_answers(answers)
         corpus_origin_answers.append(text)
-
-    return corpus_origin_answers
-
-def normalize(vector):
-    return vector / np.linalg.norm(vector)
-
-
-def get_embeddings_fasttext(text, model):
-    text = text.split()
-    vectors_of_words = np.zeros((len(text), model.vector_size))
-    for i, word in enumerate(text):
-        vectors_of_words[i] = model[word]
-    if vectors_of_words.shape[0] is 0:
-        vector_of_text = np.zeros((model.vector_size,))
-    else:
-        mean_of_words = np.mean(vectors_of_words, axis=0)
-        vector_of_text = normalize(mean_of_words)
-    return vector_of_text
-
-
-def get_embeddings_bert(text, model, tokenizer):
-    t = tokenizer(text, padding=True, truncation=True, return_tensors='pt')
-    with torch.no_grad():
-        model_output = model(**{k: v.to(model.device) for k, v in t.items()})
-    embeddings = model_output.last_hidden_state[:, 0, :]
-    embeddings = torch.nn.functional.normalize(embeddings)
-    vector_of_text = embeddings[0].cpu().numpy()
-    vector_of_text = normalize(vector_of_text)
+        preprocessed_text = preprocess(text, text_analyzer)
+        corpus_preproc.append(preprocessed_text)
+        
     
-    return vector_of_text
+    return corpus_preproc, corpus_origin_answers
 
 
-def get_matrix_texts_fasttext(corpus_preproc, model):
-    vectors_of_texts = np.zeros((len(corpus_preproc), model.vector_size))
-    for i, text in enumerate(corpus_preproc):
-        vector_of_text = get_embeddings_fasttext(text, model)
-        vectors_of_texts[i] = vector_of_text
+def index_corpus(corpus):
+    '''
+    Векторизуем корпус
+    '''
+    print('Векторизация корпуса...')
+    tf_vectorizer = TfidfVectorizer(use_idf=False, norm='l2')
+    tfidf_vectorizer = TfidfVectorizer(use_idf=True, norm='l2')
+    count_vectorizer = CountVectorizer()
     
-    return vectors_of_texts
-
-
-def get_matrix_texts_bert(corpus_preproc, model, tokenizer):
-    vectors_of_texts = np.zeros((len(corpus_preproc), 312))
-    for i, text in enumerate(corpus_preproc):
-        vector_of_text = get_embeddings_bert(text, model, tokenizer)
-        vectors_of_texts[i] = vector_of_text
+    X_tf = tf_vectorizer.fit_transform(corpus)
+    X_tfidf = tfidf_vectorizer.fit_transform(corpus)
+    X_count = count_vectorizer.fit_transform(corpus)    
+    idf_vect = tfidf_vectorizer.idf_
+    len_of_doc_vect = X_count.sum(axis=1)
+    avgdl = len_of_doc_vect.mean()
+    k = 2.0
+    b = 0.75
     
-    return vectors_of_texts
+    values, rows, cols = [], [], []
+    
+
+    for i, j in zip(*X_tf.nonzero()):
+        #числитель
+        n = idf_vect[j] * X_tf[i, j] * (k + 1)
+        #знаменатель
+        m = X_tf[i, j] + (k * (1 - b + b * len_of_doc_vect[i, 0] / avgdl))
+        result = n / m
+        rows.append(i)
+        cols.append(j)
+        values.append(result)
+        
+    corpus_matrix = sparse.csr_matrix((values, (rows, cols)))
+        
+    return corpus_matrix, count_vectorizer
 
 
-def get_similarity(corpus_matrix, query):
-    return np.dot(corpus_matrix, query.T)
+
+def index_search(vectorizer, query):
+    '''
+    Векторизуем запрос
+    '''
+    Y  = vectorizer.transform([query]).toarray()
+    
+    return Y
+
+
+def search_docs(X, Y):
+    '''
+    Считаем близость запроса и документов корпуса
+    '''
+    
+    return X.dot(Y.T)
 
 
 def range_of_results(corpus, scores):
@@ -109,63 +127,21 @@ def range_of_results(corpus, scores):
     sorted_scores_indx = np.argsort(scores, axis=0)[::-1]
     return np.array(corpus)[sorted_scores_indx.ravel()][:5]
 
-def _result_for_metrics_fasttext(qwery_corpus):
-    corpus_filepath = 'questions_about_love.jsonl'
-    fasttext_model = KeyedVectors.load('araneum_none_fasttextcbow_300_5_2018.model')
-    corpus_origin_answers = get_corpus(corpus_json)
-    fasttext_corpus_matrix = get_matrix_texts_fasttext(corpus_origin_answers, fasttext_model)
-    
-    query_fasttext = get_matrix_texts_fasttext(query_corpus, fasttext_model)    
-    sim_fasttext = get_similarity(fasttext_corpus_matrix, query_fasttext).T
-    sorted_scores_indx = np.argsort(-sim_fasttext, axis=1)
-    result = []
-    for i, el in enumerate(sorted_scores_indx):
-        t = np.array(corpus)[el.ravel()][:3]
-        result.append(t)
-    return np.array(result)    
-
-
-def _result_for_metrics_bert(query_corpus): 
-    tokenizer = AutoTokenizer.from_pretrained("cointegrated/rubert-tiny")
-    bert_model = AutoModel.from_pretrained("cointegrated/rubert-tiny")
-    corpus_origin_answers = get_corpus(corpus_json)    
-    bert_corpus_matrix = get_matrix_texts_bert(corpus_origin_answers, bert_model, tokenizer)
-    query_bert = get_matrix_texts_bert(query_corpus, bert_model, tokenizer)
-    sim_bert = get_similarity(bert_corpus_matrix, query_bert).T
-    sorted_scores_indx = np.argsort(-sim_bert, axis=1)
-    result = []
-    print(sorted_scores_indx)
-    for el in sorted_scores_indx:
-        t = np.array(corpus_origin_answers)[el.ravel()][:5]
-        result.append(t)
-    return np.array(result)
-
 
 def main():
-    print('Начинаем обработку')
-    corpus_filepath = 'questions_about_love.jsonl'
-    print('Загружаем модель...')
-    tokenizer = AutoTokenizer.from_pretrained("cointegrated/rubert-tiny")
-    bert_model = AutoModel.from_pretrained("cointegrated/rubert-tiny")
-    fasttext_model = KeyedVectors.load('araneum_none_fasttextcbow_300_5_2018.model')
-    print('Получаем корпус...')
-    corpus_origin_answers = get_corpus(corpus_json)
-    print('Получаем матрицу эмбеддингов...')
-    fasttext_corpus_matrix = get_matrix_texts_fasttext(corpus_origin_answers, fasttext_model)  
-    bert_corpus_matrix = get_matrix_texts_bert(corpus_origin_answers, bert_model, tokenizer)
+    '''
+    Главная функция: собирем всё воедино
+    '''
+    text_analyzer = Russian()
+    corpus_preproc, corpus_origin_answers = get_corpus(text_analyzer)
+    corpus_matrix, count_vectorizer = index_corpus(corpus_preproc)
     while True:
-        query = input('Введите поисковый запрос: ')
-        if query == '':
+        user_string = input('Введите поисковый запрос: ')
+        if user_string == '':
             break
-        option = input('Выбепите опцию. 1 для fasttext, 2 для bert. По умолчанию bert')
-        if option == '1':
-            query_vector = get_embeddings_fasttext(query, fasttext_model)
-            similarity = get_similarity(fasttext_corpus_matrix, query_vector)            
-        else:
-            query_vector = get_embeddings_bert(query, model, tokenizer)
-            similarity = get_similarity(bert_corpus_matrix, query_vector)
-        
-        result = range_of_results(corpus_origin_answers, similarity)
+        query = preprocess(user_string, text_analyzer)
+        Y = index_search(count_vectorizer, query)
+        result = range_of_results(corpus_origin_answers, search_docs(corpus_matrix, Y))
         for el in result:
             print(el)
 
