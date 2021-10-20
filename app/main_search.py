@@ -29,28 +29,65 @@ def load_all():
 
 
 def main():
-    st.title('Поиск')
+
     text_analyzer, tokenizer, bert_model, fasttext_model, count_vectorizer, \
         tfidf_vectorizer, count_matrix, tfidf_matrix, bm25_matrix, \
         bert_corpus_matrix, fasttext_corpus_matrix, ans_corpus = load_all()
 
-    option = st.sidebar.selectbox('Опция поиска',
-        ('count_vectorizer', 'tfidf_vectorizer', 'bm25', 'fasttext', 'bert'))
-    query = st.text_input('Поисковый запрос')
-    start_query_time = time.time()
-    if option == 'count_vectorizer':
-        result = vectorizers_search(query, text_analyzer, count_vectorizer, ans_corpus, count_matrix)
-    elif option == 'tfidf_vectorizer':
-        result = vectorizers_search(query, text_analyzer, tfidf_vectorizer, ans_corpus, tfidf_matrix)
-    elif option == 'bm25':
-        result = bm25_search(query, text_analyzer, count_vectorizer, ans_corpus, bm25_matrix)
-    elif option == 'fasttext':
-        result = fasttext_search(query, fasttext_model, count_vectorizer, ans_corpus, fasttext_corpus_matrix)
-    elif option == 'bert':
-        result = bert_search(query, bert_model, tokenizer, ans_corpus, bert_corpus_matrix)
-    end_query_time = time.time()
-    st.write(str(result))
-    st.write(end_query_time - start_query_time)
+    st.title('Поиск по корпусу ответов mail.ru')
+    st.markdown('*Раздел "Отношения"*')
+    st.sidebar.image('ruby-heart.png')
+    set_background('background.jpg')
+
+    option = st.sidebar.selectbox('Выберите опцию поиска: ',
+        ('СountVectorizer', 'TfidfVectorizer', 'Okapi BM25', \
+         'Fasttext', 'Bert (rubert-tiny)'))
+
+    count_results = st.sidebar.slider('Выберите количество результатов: ', 5, 100)
+    query = st.text_input('Введите запрос: ')
+    st.button('Искать в корпусе')
+
+    if query == '':
+        st.markdown('*Ваш запрос пока ничего не содержит*')
+    else:
+        start_query_time = time.time()
+        if option == 'СountVectorizer':
+            result = vectorizers_search(query, text_analyzer, \
+                                        count_vectorizer, ans_corpus, \
+                                        count_matrix, count_results)
+        elif option == 'TfidfVectorizer':
+            result = vectorizers_search(query, text_analyzer, \
+                                        tfidf_vectorizer, ans_corpus, \
+                                        tfidf_matrix, count_results)
+        elif option == 'Okapi BM25':
+            result = bm25_search(query, text_analyzer, count_vectorizer, \
+                                 ans_corpus, bm25_matrix, count_results)
+        elif option == 'Fasttext':
+            result = fasttext_search(query, fasttext_model, \
+                                     count_vectorizer, ans_corpus, \
+                                     fasttext_corpus_matrix, count_results)
+        elif option == 'Bert (rubert-tiny)':
+            result = bert_search(query, bert_model, tokenizer, ans_corpus, \
+                                 bert_corpus_matrix, count_results)
+        end_query_time = time.time()
+
+        st.markdown('*Время выполнения поиска: ' + \
+                    str(round(end_query_time - start_query_time, 3)) + ' секунды*')
+
+        st.markdown('### Результаты:')
+        st.write('***********************************************')
+        for i, answer in enumerate(result[0]):
+            st.write(answer)
+            st.markdown('*Близость ответа к запросу: ' + \
+                        str(round(result[1][i], 7)) + '*')
+            st.write('***********************************************')
+            #res_print = [answer, ' <br\> ', '*Близость ответа к запросу: ',
+            #             str(round(result[1][i], 7)), '*']
+            #st.markdown(''.join(res_print))
+
+        end_print_time = time.time()
+        st.markdown('*Время печати запросов: ' + \
+                    str(round(end_print_time - end_query_time, 3)) + ' секунды*')
 
 
 if __name__ == '__main__':
